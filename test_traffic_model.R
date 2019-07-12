@@ -6,11 +6,14 @@ library(osmdata)
 library(dplyr)
 library(deldir)
 library(dodgr)
+library(geodist)
 
 # 1) Get Roads
 q = opq(getbb("isle of wight, UK")) %>%
   add_osm_feature(key = "highway")
 osm_raw = osmdata_sf(q = q)
+saveRDS(osm_raw, "data/osm_raw.Rds")
+osm_raw = readRDS("data/osm_raw.Rds")
 
 osm <- osm_raw$osm_lines
 points <- osm_raw$osm_points
@@ -62,16 +65,27 @@ osm <- osm[bounds,]
 osm_major <- osm[osm$highway %in% c("primary","secondary","motorway","trunk"),]
 osm_minor <- osm[!osm$highway %in% c("primary","secondary","motorway","trunk"),]
 
+# Primary Roads someetime are missing refs, lets fix that
+osm_major_cents <- st_coordinates(st_centroid(osm_major))
+maj_dist <- geodist(osm_major_cents)
 
-voronoi <- dismo::voronoi(xy = st_coordinates(traffic.class))
-voronoi <- as(voronoi, "sf")
-st_crs(voronoi) <- st_crs(traffic.class)
+nn = RANN::nn2(maj_dist, k = 20)
 
-qtm(voronoi, fill = NULL) +
-  qtm(osm_major$geometry) +
-  qtm(osm_major$geometry[is.na(osm_major$ref)], lines.col = "red") +
-  qtm(traffic.class)
-
+for(k in 1:2){
+  for(i in 1:nrow(osm_major)){
+    if(is.na(osm_major$ref[i])){
+      for(j in 2:20){
+        idx <- nn$nn.idx[i,j]
+        if(osm_major$highway[idx] == osm_major$highway[i]){
+          if(!is.na(osm_major$ref[idx])){
+            osm_major$ref[i] <- osm_major$ref[idx]
+            break
+          }
+        }
+      }
+    }
+  }
+}
 
 #Functions
 #Function for classified roads
