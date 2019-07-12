@@ -220,9 +220,9 @@ graph_undir <- merge_directed_flows (agg_flow)
 geoms <- dodgr_to_sfc (graph_undir)
 gc <- dodgr_contract_graph (graph_undir)
 gsf <- sf::st_sf (geoms)
-gsf$flow <- gc$flow
+#gsf$flow <- gc$graph
 st_crs(gsf) <- 27700
-gsf$flow <- gsf$flow / max(gsf$flow, na.rm = T)
+gsf$flow <- gsf$dat.flow / max(gsf$dat.flow, na.rm = T)
 
 # dens <- rep (1, nrow (junc_majmi)) # uniform densities
 # disp_flow <- dodgr_flows_disperse (graph, from = junc_majmi$from_id, dens = dens)
@@ -234,13 +234,16 @@ gsf$flow <- gsf$flow / max(gsf$flow, na.rm = T)
 # st_crs(gsf) <- 27700
 # gsf$flow <- gsf$flow / max(gsf$flow)
 
-qtm(gsf, lines.lwd = 3, lines.col = "flow") + 
-  qtm(osm_major, lines.lwd = 3, lines.col = "black")
 
-# foo = dodgr_to_sf(graph)
-# st_crs(foo) <- 27700
-# foo <- foo[foo$component < 20,]
-# foo$component2 <- as.character(foo$component)
+tm_shape(gsf) +
+  tm_lines(col = "flow", lwd = 3, breaks = c(0,0.0007,0.003,0.014,0.1,1)) +
+  tm_shape(osm_major) +
+    tm_lines(col = "black", lwd = 3)
+
+foo = dodgr_to_sf(graph)
+st_crs(foo) <- 27700
+foo <- foo[foo$component < 20,]
+foo$component2 <- as.character(foo$component)
 qtm(foo, lines.lwd = 3, lines.col = "component2") + 
-  qtm(osm_major, lines.lwd = 3, lines.col = "black")
+  qtm(c, lines.lwd = 3, lines.col = "black")
 
