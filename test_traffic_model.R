@@ -7,13 +7,18 @@ library(dplyr)
 library(deldir)
 library(dodgr)
 library(geodist)
+library(dismo)
+library(RANN)
 
 # 1) Get Roads
-q = opq(getbb("isle of wight, UK")) %>%
-  add_osm_feature(key = "highway")
-osm_raw = osmdata_sf(q = q)
-saveRDS(osm_raw, "data/osm_raw.Rds")
+# q = opq(getbb("isle of wight, UK")) %>%
+#   add_osm_feature(key = "highway")
+# osm_raw = osmdata_sf(q = q)
+# saveRDS(osm_raw, "data/osm_raw.Rds")
 osm_raw = readRDS("data/osm_raw.Rds")
+#####################
+# To do :fix missing roundabouts
+###################
 
 osm <- osm_raw$osm_lines
 points <- osm_raw$osm_points
@@ -67,9 +72,9 @@ osm_minor <- osm[!osm$highway %in% c("primary","secondary","motorway","trunk"),]
 
 # Primary Roads someetime are missing refs, lets fix that
 osm_major_cents <- st_coordinates(st_centroid(osm_major))
-maj_dist <- geodist(osm_major_cents)
+#maj_dist <- geodist(osm_major_cents)
 
-nn = RANN::nn2(maj_dist, k = 20)
+nn = RANN::nn2(osm_major_cents, k = 20)
 
 for(k in 1:2){
   for(i in 1:nrow(osm_major)){
@@ -86,6 +91,8 @@ for(k in 1:2){
     }
   }
 }
+
+qtm(osm_major, lines.col = "ref", lines.lwd = 3)
 
 #Functions
 #Function for classified roads
@@ -146,8 +153,8 @@ osm <- left_join(osm,res.class, by = c("osm_id" = "osm_id"))
 # 3) Find Junctions between minor and major roads
 
 # split out
-osm_major <- osm[!is.na(osm$aadt),]
-osm_minor <- osm[is.na(osm$aadt),]
+#osm_major <- osm[!is.na(osm$aadt),]
+#osm_minor <- osm[is.na(osm$aadt),]
 
 minor_int <- st_intersects(points, osm_minor)
 major_int <- st_intersects(points, osm_major)
@@ -194,6 +201,12 @@ nrow(minor_cent)
 nrow(junc_majmi)
 junc_majmi2 <- left_join(junc_majmi2, graph_ids, by = c("X" = "from_lon", "Y" = "from_lat"))
 minor_cent <- left_join(minor_cent, graph_ids, by = c("X" = "from_lon", "Y" = "from_lat"))
+
+######################
+## Hack fix later: remove NAs
+junc_majmi2 <- junc_majmi2[!is.na(junc_majmi2$from_id),]
+minor_cent <- minor_cent[!is.na(minor_cent$from_id),]
+#######################
 nrow(minor_cent)
 nrow(junc_majmi)
 
@@ -209,7 +222,7 @@ gc <- dodgr_contract_graph (graph_undir)
 gsf <- sf::st_sf (geoms)
 gsf$flow <- gc$flow
 st_crs(gsf) <- 27700
-gsf$flow <- gsf$flow / max(gsf$flow)
+gsf$flow <- gsf$flow / max(gsf$flow, na.rm = T)
 
 # dens <- rep (1, nrow (junc_majmi)) # uniform densities
 # disp_flow <- dodgr_flows_disperse (graph, from = junc_majmi$from_id, dens = dens)
@@ -224,10 +237,10 @@ gsf$flow <- gsf$flow / max(gsf$flow)
 qtm(gsf, lines.lwd = 3, lines.col = "flow") + 
   qtm(osm_major, lines.lwd = 3, lines.col = "black")
 
-foo = dodgr_to_sf(graph)
-st_crs(foo) <- 27700
-foo <- foo[foo$component < 20,]
-foo$component2 <- as.character(foo$component)
+# foo = dodgr_to_sf(graph)
+# st_crs(foo) <- 27700
+# foo <- foo[foo$component < 20,]
+# foo$component2 <- as.character(foo$component)
 qtm(foo, lines.lwd = 3, lines.col = "component2") + 
   qtm(osm_major, lines.lwd = 3, lines.col = "black")
 
