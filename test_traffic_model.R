@@ -9,6 +9,8 @@ library(dodgr)
 library(geodist)
 library(dismo)
 library(RANN)
+library(pbapply)
+library(stplanr)
 
 # 1) Get Roads
 # q = opq(getbb("isle of wight, UK")) %>%
@@ -227,50 +229,48 @@ nrow(junc_majmi)
 #######################
 
 # Do routing
+
 to = minor_cent$from_id
 from = junc_majmi2$from_id
-flows <- matrix (10 * runif (length (from) * length (to)),
-                 nrow = length (from))
 
-agg_flow <- dodgr_flows_aggregate(graph,
-                                  from = from,
-                                  to = to,
-                                  flow = flows,
-                                  #flows = matrix(rep(1, nrow(minor_cent) * nrow(junc_majmi)),
-                                  #               ncol = nrow(minor_cent)),
-                                  contract = TRUE, quiet = FALSE, tol = 0)
-summary(agg_flow$flow)
-graph_undir <- merge_directed_flows (agg_flow)
-geoms <- dodgr_to_sfc (graph_undir)
-#graph_cont <- dodgr_contract_graph (graph_undir)
-gsf <- sf::st_sf (geoms)
-
-#foo <- dodgr_to_sf(graph_undir)
-
-#gsf$flow <- gc$graph
-st_crs(gsf) <- 27700
-gsf$flow <- gsf$dat.flow / max(gsf$dat.flow, na.rm = T)
-
-# dens <- rep (1, nrow (junc_majmi)) # uniform densities
-# disp_flow <- dodgr_flows_disperse (graph, from = junc_majmi$from_id, dens = dens)
-# graph_undir <- merge_directed_flows (disp_flow)
+# # dodgr_flows_aggregate  failing on windows try dodgr_paths
+# agg_flow <- dodgr_flows_aggregate(graph,
+#                                   from = from,
+#                                   to = to,
+#                                   flows = matrix(rep(1, nrow(minor_cent) * nrow(junc_majmi)),
+#                                                  ncol = nrow(minor_cent)),
+#                                   contract = TRUE, quiet = FALSE, tol = 0)
+# summary(agg_flow$flow)
+# graph_undir <- merge_directed_flows (agg_flow)
 # geoms <- dodgr_to_sfc (graph_undir)
-# gc <- dodgr_contract_graph (graph_undir)
+# graph_cont <- dodgr_contract_graph (graph_undir)
 # gsf <- sf::st_sf (geoms)
-# gsf$flow <- gc$flow
-# st_crs(gsf) <- 27700
-# gsf$flow <- gsf$flow / max(gsf$flow)
 
+routes <- dodgr_paths(graph, from = from, to = to)
+routes <- unlist(routes, recursive = FALSE)
 
-tm_shape(gsf) +
-  tm_lines(col = "flow", lwd = 3, breaks = c(0,0.0007,0.003,0.014,0.1,1)) +
-  tm_shape(osm_major) +
-    tm_lines(col = "black", lwd = 3)
+path_to_sf <- function(graph2, routes){
+  graph2 <- graph2[,c("from_id", "from_lon", "from_lat")]
+  routes <- routes[lengths(routes) > 0]
+  inner_func <- function(i){
+      sub <- graph2[match(routes[[i]], graph2$from_id),]
+      sub <- as.matrix(sub[,c("from_lon", "from_lat")])
+      sub <- sf::st_linestring(sub)
+      return(sub)
+  }
+  res <- pbapply::pblapply(1:length(routes), inner_func)
+  res <- sf::st_as_sfc(res, crs = 27700)
+  res <- st_as_sf(data.frame(id = seq(1, length(res)),
+                             geometry = res))
+  return(res)
+}
 
-foo = dodgr_to_sf(graph)
-st_crs(foo) <- 27700
-foo <- foo[foo$component < 20,]
-foo$component2 <- as.character(foo$component)
-qtm(foo, lines.lwd = 3, lines.col = "component2") + 
-  qtm(c, lines.lwd = 3, lines.col = "black")
+routes_sf <- path_to_sf(graph, routes)
+routes_sf$flow <- 1
 
+route_network <- stplanr::overline2(routes_sf, ncores = 4, attrib = "flow")
+#st_crs(route_network) <- 27700
+qtm(route_network, lines.col = "flow", lines.lwd = 3) # Lets see the aggregated routes
+
+# TODO: Weight the routes but traffic on major roads
+# TODO: Investigate rcpprouting package
